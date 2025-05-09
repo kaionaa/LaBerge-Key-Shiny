@@ -1,0 +1,265 @@
+#THIS IS THE BEE-SEARCH BETA VERSION (5/8/2025)
+
+library(shiny)
+library(shinydashboard)
+library(fontawesome)
+library(bslib)
+
+laberge <- read.csv("https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/refs/heads/main/NEW-LaBerge%20Female%20Key%20to%20Eumellissodes.csv")
+gloss = read.csv("https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/refs/heads/main/LaBerge%20Shiny%20Glossary%20Dataset.csv")
+
+#pics = laberge%>%
+ # mutate(
+  #  url(paste())
+  #)
+
+# Define the questions and answers data frame
+questions_df <- data.frame(
+  question = toupper(laberge$Question),
+  answer1 = laberge$Answer1,
+  answer2 = laberge$Answer2,
+  next_question1 = toupper(laberge$Answer1.Move),  # Next question if answer1 is chosen
+  next_question2 = toupper(laberge$Answer2.Move),  # Next question or classification if answer2 is chosen
+  stringsAsFactors = FALSE
+)
+
+
+# Define UI for the application
+ui <- dashboardPage(skin = "yellow",
+                    dashboardHeader(title="Bee-Search"),
+    dashboardSidebar(
+      sidebarMenu(
+        menuItem("Welcome", tabName = "welc", icon = icon("face-smile")),
+        menuItem("Key", tabName = "hi", icon = icon("eye")),
+        menuItem("Glossary", icon = icon("book"), tabName = "hihi")#,
+        #menuItem("Raw Data", icon = icon("download"), tabName="data")
+        )
+    ),
+    dashboardBody(
+      tabItems(
+        tabItem(tabName="welc",
+                fluidPage(
+                  titlePanel("Welcome to Bee-Search!"),
+                  mainPanel(
+                    h4(uiOutput("welcpar"))
+                    ),
+                  tags$img(src = "https://bugguide.net/images/cache/MZO/LSZ/MZOLSZCLFLSHKRFZ7RJZSRDZMRELMRNLZZTLMZ0H2RTLKZTL2RAL2RKH7Z0HERSHQZTLGR0H6RBL2RKHMZRHSRRH8R.jpg",
+                           style = "width: 40%; height: auto; display: block; margin: 0 auto;"
+                           )
+                  )
+                ),
+        tabItem(tabName = "hi",
+                fluidPage(
+                  titlePanel("The Bees Keys"),
+                  sidebarPanel(uiOutput("question_ui"),
+                      uiOutput("answer_ui"),
+                      actionButton("submit", "Submit"),
+                      actionButton("back", "Back"),
+                      hr(),
+                      h4("Answer History:"),
+                      uiOutput("history_ui"),  # Display the history of answers
+                      uiOutput("end_message"),  # Display the end-of-survey message
+                      uiOutput("start_over_ui"),# Start over button when the survey ends
+                      textOutput("result")  # Display the result after completing the survey
+                      ),
+                  mainPanel(
+                    selectInput("select", label = h3("Anatomy Pictures"), 
+                                choices = list("Full Body, Top View" = 1, "Full Body, Side View" = 2, "Wing Morphology" = 3, "Head Morphology"=4), 
+                                selected = 1),
+                    hr(),
+                    fluidRow(
+                      column(
+                        12,  # Full width
+                        uiOutput("display_image")  # Dynamic image output
+                ))
+              ))),
+        tabItem(tabName = "hihi",
+                mainPanel(title = "Glossary of Terms",
+                    DT::dataTableOutput("glossTab"))
+                   )#,
+        #tabItem(tabName="data",
+                #mainPanel(title = "Raw Dataset for the Key",
+                    #DT::dataTableOutput("rawdata"))
+                #))
+        )))
+
+# Define server logic
+server <- function(input, output, session) {
+  
+  # Reactive value to track the current question
+  current_question <- reactiveVal(1)
+  
+  # Reactive value to track the history of answered questions
+  question_history <- reactiveVal(list())
+  
+  # Reactive value to track the history of answers
+  answer_history <- reactiveVal(list())
+  
+  # Reactive value to track the result ("You are a:")
+  result_text <- reactiveVal(NULL)
+  
+  # Function to get the current question details
+  get_current_question <- reactive({
+    question_id <- current_question()
+    questions_df[question_id, ]
+  })
+  
+  #render welcome page
+  output$welcpar = renderText({
+    "This app is currently suited to help identify female Eumelissodes specimens based on the Laberge Key from 1961."
+  })
+  
+  # Render the current question
+  output$question_ui <- renderUI({
+    if (!is.null(current_question())) {
+      question <- get_current_question()
+      h3(question$question)
+    }
+  })
+  
+  # Render the current answers
+  output$answer_ui <- renderUI({
+    if (!is.null(current_question())) {
+      question <- get_current_question()
+      radioButtons("answer", "Choose an answer:", 
+                   choices = c(question$answer1, question$answer2),
+                   selected = NULL)  # Ensure no answer is selected initially
+    }
+  })
+  #render pictures
+  selected_image <- reactive({
+    selection <- input$select
+    switch(
+      selection,
+      `1`="https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/main/beeoutline.jpg",
+      `2`="https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/main/sidemorph.jpg",
+      `3`="https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/main/wingmorph.jpg",
+      `4`="https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/main/headmorph.jpg",
+      default="https://raw.githubusercontent.com/kaionaa/LaBerge-Key-Shiny/main/beeoutline.jpg"
+    )
+  })
+  output$display_image <- renderUI({
+    tags$img(
+      src = selected_image(),
+      style = "width: 100%; height: auto;"
+    )
+  })
+  
+  # Handle the submit button logic
+  observeEvent(input$submit, {
+    req(input$answer)  # Ensure an answer is selected
+    
+    question <- get_current_question()
+    
+    # Determine the next step based on the selected answer
+    next_question <- if (input$answer == question$answer1) {
+      question$next_question1
+    } else {
+      question$next_question2
+    }
+    
+    # Add the current question to the history
+    history <- question_history()
+    history <- c(history, list(current_question()))
+    question_history(history)
+    
+    # Add the selected answer to the answer history
+    answers <- answer_history()
+    answers <- c(answers, list(input$answer))
+    answer_history(answers)
+    
+    # Convert next_question to numeric to check if it points to the next question
+    next_question_num <- as.numeric(next_question)
+    
+    # If next_question is numeric (i.e., the next question exists), move to the next question
+    if (!is.na(next_question_num)) {
+      current_question(next_question_num)  # Move to the next question
+      result_text(NULL)  # Reset the result message when moving to a new question
+    } else {
+      # If next_question is a string (classification), show the result
+      result_text(paste("This is a: Melissodes", next_question))
+      
+      # Stop the survey flow (end of survey)
+      current_question(NULL)
+    }
+  })
+  
+  # Handle the back button logic
+  observeEvent(input$back, {
+    history <- question_history()
+    
+    # If there's a question history, go back to the last question
+    if (length(history) > 0) {
+      last_question <- history[[length(history)]]
+      question_history(history[-length(history)])  # Remove the last question from history
+      current_question(last_question)  # Go back to the last question
+      answer_history(answer_history()[-length(answer_history())])  # Remove the last answer from the history
+      result_text(NULL)  # Reset the result when going back to an earlier question
+    }
+  })
+  
+  # Display the history of answers with question text
+  output$history_ui <- renderUI({
+    history <- answer_history()
+    
+    # If the user has answered questions, show the history
+    if (length(history) > 0) {
+      answer_list <- lapply(seq_along(history), function(i) {
+        question_text <- questions_df[i, "question"]
+        answer_text <- history[[i]]
+        # Return a paragraph with the question and the corresponding answer
+        tags$p(paste(question_text, "Answer:", answer_text))
+      })
+      tagList(answer_list)
+    } else {
+      "No answers yet."
+    }
+  })
+  
+  # Display the end-of-survey message when the survey is over
+  output$end_message <- renderUI({
+    if (is.null(current_question())) {
+      # If no more questions are left, show a thank you message
+      tags$p("You did it! Yay!")
+    }
+  })
+  
+  # Display the result text (e.g., "You are a: [classification]")
+  output$result <- renderText({
+    result_text()
+  })
+  
+  # Display the Start Over button when the survey ends
+  output$start_over_ui <- renderUI({
+    if (is.null(current_question())) {
+      actionButton("start_over", "Start Over")
+    }
+  })
+  
+  # Handle the "Start Over" button click
+  observeEvent(input$start_over, {
+    # Reset all reactive values
+    current_question(1)  # Start with the first question
+    question_history(list())  # Reset the question history
+    answer_history(list())  # Reset the answer history
+    result_text(NULL)  # Reset the result
+  })
+  #use print to test, not sure which to use for final draft
+  output$glossTab = DT::renderDataTable({
+    DT::datatable(gloss)
+  })
+  
+  #render raw data tab
+  output$rawdata = DT::renderDataTable({
+    DT::datatable(
+      laberge,
+      options = list(
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv')
+        )
+      )
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
